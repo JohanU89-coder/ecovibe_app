@@ -1,0 +1,20 @@
+# Archivos generados por Flutter y el IDE
+.dart_tool/
+.idea/
+.vscode/
+build/
+*.iml
+*.ipr
+*.iws
+
+# Archivos de dependencias
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Archivos de log y compilación
+pubspec.lock
+
+# Archivos comprimidos (para evitar errores)
+*.rar
+*.zip
