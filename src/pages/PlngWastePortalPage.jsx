@@ -41,7 +41,7 @@ export default function PlngWastePortalPage() {
 
       let query = supabase
         .from('weekly_reports')
-        .select(`id, semana, campamento, total_kilos, status, numero_guia, condicion, profiles ( nombres, apellido )`, { count: 'exact' })
+        .select(`id, semana, campamento, total_kilos, status, numero_guia, condicion, responsable_recepcion, profiles ( nombres, apellido )`, { count: 'exact' })
         .in('campamento', plngCampamentos)
         .order('created_at', { ascending: false });
 
@@ -96,6 +96,7 @@ export default function PlngWastePortalPage() {
                 campamento: report.campamento,
                 area: report.area,
                 condicion: report.condicion,
+                responsable_recepcion: report.responsable_recepcion,
                 estado: report.status,
                 numero_guia: report.numero_guia,
             };
@@ -107,13 +108,14 @@ export default function PlngWastePortalPage() {
               });
             }
         });
-        const headers = ['Usuario', 'Semana', 'Campamento', 'Área', 'Nro. Guía', 'Condición', 'Estado', 'Categoría', 'Residuo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo', 'Total Item'];
+        const headers = ['Usuario', 'Semana', 'Campamento', 'Área', 'Nro. Guía', 'Condición', 'Responsable Recepción', 'Estado', 'Categoría', 'Residuo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo', 'Total Item'];
         const csvContent = [ 
             headers.join(','), 
             ...flatData.map(row => [ 
                 `"${row.usuario || ''}"`, `"${row.semana || ''}"`, `"${row.campamento || ''}"`, 
                 `"${row.area || ''}"`, `"${row.numero_guia || ''}"`, `"${row.condicion || ''}"`, 
-                `"${row.estado || ''}"`, `"${row.categoria || ''}"`, `"${row.residuo || ''}"`, 
+                `"${row.responsable_recepcion || ''}"`, `"${row.estado || ''}"`, 
+                `"${row.categoria || ''}"`, `"${row.residuo || ''}"`, 
                 row.lunes ?? 0, row.martes ?? 0, row.miercoles ?? 0, row.jueves ?? 0, 
                 row.viernes ?? 0, row.sabado ?? 0, row.domingo ?? 0, row.total_item ?? 0, 
             ].join(',')) 
@@ -155,7 +157,13 @@ export default function PlngWastePortalPage() {
       </div>
       <PlngFilters filters={filters} onFilterChange={handleFilterChange} onApplyFilters={handleApplyFilters} onExport={handleExportFilteredToCSV} />
       {error && <p className="text-red-500 text-center mb-4">Error: {error}</p>}
-      <ReportTable reports={reports} loading={loading} onShowDetails={handleShowDetails} showConditionColumn={true} />
+      <ReportTable 
+        reports={reports} 
+        loading={loading} 
+        onShowDetails={handleShowDetails} 
+        showConditionColumn={true}
+        showReceptionResponsible={true}
+      />
       <Pagination currentPage={currentPage} reportsPerPage={reportsPerPage} totalReports={totalReports} onPageChange={handlePageChange} onReportsPerPageChange={handleReportsPerPageChange} />
       <DetailsModal reportDetails={selectedReportDetails} onClose={handleCloseModal} loading={isModalLoading} showNotification={showNotification} />
     </div>
