@@ -184,9 +184,20 @@ class _LoginPageState extends State<LoginPage> {
                           style: TextButton.styleFrom(
                             foregroundColor: Colors.white,
                           ),
-                          child: const Text('Forgot Password?'),
+                          child: const Text('Olvidaste tu Contraseña?'),
                         ),
                         const Spacer(flex: 1),
+                        // --- NUEVO WIDGET: Texto de créditos ---
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 20.0),
+                          child: Text(
+                            'by: JohanU89-coder',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),

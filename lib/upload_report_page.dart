@@ -116,10 +116,10 @@ class _UploadReportPageState extends State<UploadReportPage> {
   void initState() {
     super.initState();
 
-    _selectedDateRange = DateTimeRange(
-      start: DateTime.now(),
-      end: DateTime.now().add(const Duration(days: 6)),
-    );
+    final now = DateTime.now();
+    final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
+    final endOfWeek = startOfWeek.add(const Duration(days: 6));
+    _selectedDateRange = DateTimeRange(start: startOfWeek, end: endOfWeek);
 
     final dateFormat = DateFormat('dd/MM/yyyy');
     _semanaController.text =
@@ -234,7 +234,6 @@ class _UploadReportPageState extends State<UploadReportPage> {
           ResiduoItem(
             nombre: 'Cilindros metálicos contaminados con hidrocarburo',
           ),
-
           ResiduoItem(
             nombre: 'Parihuelas de madera contaminadas con hidrocarburo',
           ),
@@ -244,12 +243,10 @@ class _UploadReportPageState extends State<UploadReportPage> {
           ),
           ResiduoItem(nombre: 'Residuos sólidos contaminados con solventes'),
           ResiduoItem(nombre: 'Borra sólida con hidrocarburo '),
-
           ResiduoItem(nombre: 'Restos de yeso / drywall'),
           ResiduoItem(
             nombre: 'Restos de soldadura, discos de corte y esmerilado',
           ),
-
           ResiduoItem(nombre: 'Residuos sólidos contaminados con quimicos'),
         ],
       ),
@@ -468,50 +465,6 @@ class _UploadReportPageState extends State<UploadReportPage> {
     return false;
   }
 
-  Future<void> _pickDateRange(BuildContext context) async {
-    final initialDateRange = DateTimeRange(
-      start: DateTime.now(),
-      end: DateTime.now().add(const Duration(days: 6)),
-    );
-
-    final newDateRange = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(DateTime.now().year - 1),
-      lastDate: DateTime(DateTime.now().year + 1),
-      initialDateRange: _selectedDateRange ?? initialDateRange,
-      builder: (context, child) {
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 100.0),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 450.0),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(15.0),
-                child: child!,
-              ),
-            ),
-          ),
-        );
-      },
-    );
-
-    if (newDateRange != null) {
-      setState(() {
-        _selectedDateRange = newDateRange;
-        final dateFormat = DateFormat('dd/MM/yyyy');
-        _semanaController.text =
-            '${dateFormat.format(newDateRange.start)} - ${dateFormat.format(newDateRange.end)}';
-      });
-    } else {
-      setState(() {
-        _selectedDateRange = initialDateRange;
-        final dateFormat = DateFormat('dd/MM/yyyy');
-        _semanaController.text =
-            '${dateFormat.format(initialDateRange.start)} - ${dateFormat.format(initialDateRange.end)}';
-      });
-    }
-  }
-
   Future<void> _updateExistingCategoriesAndItems(String reportId) async {
     try {
       final supabase = Supabase.instance.client;
@@ -568,6 +521,58 @@ class _UploadReportPageState extends State<UploadReportPage> {
     }
   }
 
+  // --- NUEVA FUNCIÓN DE VALIDACIÓN ---
+  Future<bool> _checkExistingReport() async {
+    if (_selectedCampamento == null || _semanaController.text.isEmpty) {
+      return true; // Pasa la validación si los datos están incompletos, el validador del formulario lo detectará.
+    }
+
+    try {
+      final supabase = Supabase.instance.client;
+      final userId = supabase.auth.currentUser!.id;
+
+      var query = supabase
+          .from('weekly_reports')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('campamento', _selectedCampamento!)
+          .eq('semana', _semanaController.text);
+
+      // Si se está editando, excluye el reporte actual de la verificación.
+      if (widget.existingReport != null) {
+        query = query.not('id', 'eq', widget.existingReport!['id']);
+      }
+
+      final response = await query;
+
+      if (response.isNotEmpty && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Ya existe un reporte para este campamento en la semana seleccionada.',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return false; // Se encontró un duplicado, la validación falla.
+      }
+
+      return true; // No se encontró duplicado, la validación pasa.
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Error al verificar reportes existentes: ${e.toString()}',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return false; // Falla la validación en caso de error.
+    }
+  }
+
   Future<void> _saveReport() async {
     if (!_formKey.currentState!.validate()) return;
     if (widget.existingReport != null && !_hayCambios()) {
@@ -592,6 +597,16 @@ class _UploadReportPageState extends State<UploadReportPage> {
       return;
     }
     setState(() => _isLoading = true);
+
+    // --- VERIFICACIÓN DE REPORTE EXISTENTE ---
+    final canSave = await _checkExistingReport();
+    if (!canSave) {
+      setState(
+        () => _isLoading = false,
+      ); // Detiene la carga y retorna si se encuentra un duplicado.
+      return;
+    }
+
     try {
       final supabase = Supabase.instance.client;
       final userId = supabase.auth.currentUser!.id;
@@ -780,8 +795,21 @@ class _UploadReportPageState extends State<UploadReportPage> {
     );
   }
 
+  // MODIFICADO: Se ajustó el estilo de los campos
   List<Step> getSteps(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
+    InputDecoration fieldDecoration(String label, {IconData? suffixIcon}) {
+      return InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(fontSize: 13),
+        suffixIcon: suffixIcon != null ? Icon(suffixIcon, size: 20) : null,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(
+          vertical: 12,
+          horizontal: 12,
+        ),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+      );
+    }
 
     return [
       Step(
@@ -793,140 +821,147 @@ class _UploadReportPageState extends State<UploadReportPage> {
             const Center(
               child: Text(
                 'REPORTE DE GENERACIÓN DE RESIDUOS',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
             TextFormField(
               controller: _semanaController,
               readOnly: true,
-              decoration: const InputDecoration(
-                labelText: 'Semana',
-                suffixIcon: Icon(Icons.calendar_today),
+              style: const TextStyle(fontSize: 13),
+              decoration: fieldDecoration(
+                'Semana',
+                suffixIcon: Icons.calendar_today,
               ),
-              onTap: () => _pickDateRange(context),
+              onTap: () {},
               validator:
                   (value) => value!.isEmpty ? 'Selecciona una semana' : null,
             ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField2<String>(
-              value: _selectedCampamento,
-              decoration: const InputDecoration(
-                labelText: 'Campamento',
-                contentPadding: EdgeInsets.symmetric(
-                  vertical: 16,
-                  horizontal: 12,
-                ),
-              ),
-              isExpanded: true,
-              items:
-                  _campamentos.map((String camp) {
-                    return DropdownMenuItem<String>(
-                      value: camp,
-                      child: Text(camp),
-                    );
-                  }).toList(),
-              validator:
-                  (value) => value == null ? 'Selecciona un campamento' : null,
-              onChanged:
-                  (newValue) => setState(() => _selectedCampamento = newValue),
-              dropdownStyleData: DropdownStyleData(
-                maxHeight: 200,
-                width: screenWidth * 0.84,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(15),
-                  color: Colors.green.shade50,
-                ),
-              ),
-              dropdownSearchData: DropdownSearchData(
-                searchController: _campamentoSearchController,
-                searchInnerWidgetHeight: 50,
-                searchInnerWidget: Container(
-                  height: 50,
-                  padding: const EdgeInsets.only(
-                    top: 8,
-                    bottom: 4,
-                    right: 8,
-                    left: 8,
-                  ),
-                  child: TextFormField(
-                    expands: true,
-                    maxLines: null,
-                    controller: _campamentoSearchController,
-                    decoration: InputDecoration(
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 8,
-                      ),
-                      hintText: 'Buscar campamento...',
-                      hintStyle: const TextStyle(fontSize: 12),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  // CAMBIO: Se ajustó el flex para cambiar el tamaño
+                  flex: 3,
+                  child: DropdownButtonFormField2<String>(
+                    value: _selectedCampamento,
+                    decoration: fieldDecoration('Campamento'),
+                    isExpanded: true,
+                    buttonStyleData: const ButtonStyleData(
+                      height: 40,
+                      padding: EdgeInsets.zero,
+                    ),
+                    dropdownStyleData: DropdownStyleData(
+                      maxHeight: 200,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(15),
                       ),
                     ),
+                    items:
+                        _campamentos.map((String camp) {
+                          return DropdownMenuItem<String>(
+                            value: camp,
+                            child: Text(
+                              camp,
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          );
+                        }).toList(),
+                    validator:
+                        (value) =>
+                            value == null ? 'Selecciona un campamento' : null,
+                    onChanged:
+                        (newValue) =>
+                            setState(() => _selectedCampamento = newValue),
+                    dropdownSearchData: DropdownSearchData(
+                      searchController: _campamentoSearchController,
+                      searchInnerWidgetHeight: 40,
+                      searchInnerWidget: Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: TextFormField(
+                          controller: _campamentoSearchController,
+                          style: const TextStyle(fontSize: 13),
+                          decoration: fieldDecoration(
+                            'Buscar campamento...',
+                          ).copyWith(
+                            contentPadding: const EdgeInsets.symmetric(
+                              vertical: 10,
+                              horizontal: 8,
+                            ),
+                          ),
+                        ),
+                      ),
+                      searchMatchFn: (item, searchValue) {
+                        return item.value.toString().toLowerCase().contains(
+                          searchValue.toLowerCase(),
+                        );
+                      },
+                    ),
+                    onMenuStateChange: (isOpen) {
+                      if (!isOpen) {
+                        _campamentoSearchController.clear();
+                      }
+                    },
                   ),
                 ),
-                searchMatchFn: (item, searchValue) {
-                  return item.value.toString().toLowerCase().contains(
-                    searchValue.toLowerCase(),
-                  );
-                },
-              ),
-              onMenuStateChange: (isOpen) {
-                if (!isOpen) {
-                  _campamentoSearchController.clear();
-                }
-              },
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField2<String>(
-              value: _selectedArea,
-              decoration: const InputDecoration(
-                labelText: 'Área',
-                contentPadding: EdgeInsets.symmetric(
-                  vertical: 16,
-                  horizontal: 12,
+                const SizedBox(width: 12),
+                Expanded(
+                  // CAMBIO: Se ajustó el flex para cambiar el tamaño
+                  flex: 2,
+                  child: DropdownButtonFormField2<String>(
+                    value: _selectedArea,
+                    decoration: fieldDecoration('Área'),
+                    isExpanded: true,
+                    buttonStyleData: const ButtonStyleData(
+                      height: 40,
+                      padding: EdgeInsets.zero,
+                    ),
+                    dropdownStyleData: DropdownStyleData(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                    ),
+                    items:
+                        _areas.map((String area) {
+                          return DropdownMenuItem<String>(
+                            value: area,
+                            child: Text(
+                              area,
+                              style: const TextStyle(fontSize: 13),
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
+                          );
+                        }).toList(),
+                    onChanged:
+                        (newValue) => setState(() => _selectedArea = newValue),
+                    validator:
+                        (value) => value == null ? 'Selecciona un área' : null,
+                  ),
                 ),
-              ),
-              isExpanded: true,
-              dropdownStyleData: DropdownStyleData(
-                width: screenWidth * 0.84,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(15),
-                  color: Colors.green.shade50,
-                ),
-              ),
-              items:
-                  _areas.map((String area) {
-                    return DropdownMenuItem<String>(
-                      value: area,
-                      child: Text(area),
-                    );
-                  }).toList(),
-              onChanged: (newValue) => setState(() => _selectedArea = newValue),
-              validator: (value) => value == null ? 'Selecciona un área' : null,
+              ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             TextFormField(
               controller: _flowlineController,
-              decoration: const InputDecoration(labelText: 'Flowline'),
-              style: const TextStyle(fontWeight: FontWeight.bold),
+              decoration: fieldDecoration('Flowline'),
+              style: const TextStyle(fontSize: 13),
               textCapitalization: TextCapitalization.sentences,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             TextFormField(
               controller: _progresivaController,
-              decoration: const InputDecoration(labelText: 'Progresiva'),
-              style: const TextStyle(fontWeight: FontWeight.bold),
+              decoration: fieldDecoration('Progresiva'),
+              style: const TextStyle(fontSize: 13),
               textCapitalization: TextCapitalization.sentences,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             TextFormField(
               controller: _actividadController,
-              decoration: const InputDecoration(labelText: 'Actividad'),
-              style: const TextStyle(fontWeight: FontWeight.bold),
+              decoration: fieldDecoration('Actividad'),
+              style: const TextStyle(fontSize: 13),
               textCapitalization: TextCapitalization.sentences,
             ),
           ],
@@ -956,6 +991,7 @@ class _UploadReportPageState extends State<UploadReportPage> {
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: colorDeLetra,
+                                fontSize: 12,
                               ),
                             ),
                           ),
@@ -964,7 +1000,7 @@ class _UploadReportPageState extends State<UploadReportPage> {
                             '${categoria.getTotal().toStringAsFixed(2)} ${categoria.unidad}',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
-                              fontSize: 16,
+                              fontSize: 12,
                               color: colorDeLetra,
                             ),
                           ),
@@ -972,7 +1008,7 @@ class _UploadReportPageState extends State<UploadReportPage> {
                       ),
                       leading: Text(
                         categoria.emoji,
-                        style: const TextStyle(fontSize: 24),
+                        style: const TextStyle(fontSize: 20),
                       ),
                       backgroundColor: categoria.color,
                       collapsedBackgroundColor: categoria.color,
